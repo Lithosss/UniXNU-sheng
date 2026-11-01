@@ -34,15 +34,15 @@ jobs:
           UNIXNU_UNIQUE_CHIP_ID: ${{ secrets.UNIXNU_UNIQUE_CHIP_ID }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          python3 ../UniXNU/unixnu defconfig -D . --os 17
-          python3 ../UniXNU/unixnu fetch -D .
+          python3 ../UniXNU/unixnu defconfig sheng_defconfig -D . --os 17
+          python3 ../UniXNU/unixnu fetch -D . --os 17
       - name: build kernel (failure allowed)
         id: build
         working-directory: device
         env:
           UNIXNU_UNIQUE_CHIP_ID: ${{ secrets.UNIXNU_UNIQUE_CHIP_ID }}
           GITHUB_TOKEN: ${{ github.token }}
-        run: python3 ../UniXNU/unixnu build kernel -D . || echo "BUILD_FAILED_AS_EXPECTED"
+        run: python3 ../UniXNU/unixnu build kernel -D . --os 17 || echo "BUILD_FAILED_AS_EXPECTED"
       - name: inventory
         id: inv
         run: |
