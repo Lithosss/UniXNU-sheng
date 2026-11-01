@@ -1,0 +1,67 @@
+name: b1-diag
+
+# B1 诊断：跑到 build 失败点，然后盘点构建树里真实存在的产物，定位缺口。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    runs-on: macos-26
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: device
+          submodules: recursive
+      - uses: actions/checkout@v4
+        with:
+          repository: UniXNU/UniXNU
+          path: UniXNU
+          submodules: recursive
+      - uses: actions/checkout@v4
+        with:
+          repository: UniXNU/uefi-sheng
+          path: uefi-sheng
+          submodules: recursive
+      - name: tools
+        run: brew install dtc llvm lld cmake mtools blacktop/tap/ipsw qemu
+      - name: fetch + defconfig
+        working-directory: device
+        env:
+          UNIXNU_UNIQUE_CHIP_ID: ${{ secrets.UNIXNU_UNIQUE_CHIP_ID }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 ../UniXNU/unixnu defconfig -D . --os 17
+          python3 ../UniXNU/unixnu fetch -D .
+      - name: build kernel (failure allowed)
+        id: build
+        working-directory: device
+        env:
+          UNIXNU_UNIQUE_CHIP_ID: ${{ secrets.UNIXNU_UNIQUE_CHIP_ID }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 ../UniXNU/unixnu build kernel -D . || echo "BUILD_FAILED_AS_EXPECTED"
+      - name: inventory
+        id: inv
+        run: |
+          R="$RUNNER_TEMP/inventory.txt"
+          echo "=== UniXNU/out tree (depth 4) ===" | tee "$R"
+          find UniXNU/out -maxdepth 4 2>/dev/null | sort | tee -a "$R"
+          echo "=== key prelink / entry / audit products ===" | tee -a "$R"
+          for p in "xnu-prelink" "xnu-entry" "darwinboot-storage-native-metadata" "darwinboot-aes-native-metadata" "storage-abi" "image4-ignition"; do
+            echo "--- $p ---" | tee -a "$R"
+            find UniXNU -type d -name "$p" 2>/dev/null | tee -a "$R"
+            find UniXNU -path "*$p*" -type f 2>/dev/null | head -20 | tee -a "$R"
+          done
+          echo "=== KDK caches ===" | tee -a "$R"
+          find UniXNU device -path "*.cache*" -maxdepth 4 2>/dev/null | head -30 | tee -a "$R"
+          echo "INV=$R" >> "$GITHUB_OUTPUT"
+      - name: Upload inventory
+        uses: actions/upload-artifact@v4
+        with:
+          name: b1-inventory
+          retention-days: 3
+          if-no-files-found: error
+          path: ${{ steps.inv.outputs.INV }}
