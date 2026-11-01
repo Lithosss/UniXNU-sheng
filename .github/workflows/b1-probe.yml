@@ -1,0 +1,56 @@
+name: b1-probe
+
+# B1 第一步：确认 QEMU TCG 认证链所需的环境是否齐备（不做完整构建）。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: device
+          submodules: recursive
+      - name: Install qemu and tools
+        run: |
+          brew install qemu dtc mtools llvm lld cmake
+      - name: Collect environment report
+        id: rep
+        run: |
+          set +e
+          R="$RUNNER_TEMP/probe-report.txt"
+          echo "=== sw / xcode ===" | tee "$R"
+          sw_vers | tee -a "$R"
+          xcodebuild -version | tee -a "$R"
+          echo "=== qemu ===" | tee -a "$R"
+          which qemu-system-aarch64 | tee -a "$R"
+          qemu-system-aarch64 --version | head -2 | tee -a "$R"
+          echo "=== AAVMF / edk2 firmware files ===" | tee -a "$R"
+          QP=$(brew --prefix qemu)
+          find "$QP/share" -iname "*aarch64*code*.fd" -o -iname "*aavmf*" 2>/dev/null | tee -a "$R"
+          ls "$QP/share/qemu" | grep -iE "edk2|aavmf|pflash" | tee -a "$R"
+          echo "=== required tools ===" | tee -a "$R"
+          for t in clang clang++ xcodebuild git cmake ninja dtc fdtget mformat mcopy python3 lld-link ld.lld; do
+            p=$(command -v "$t" 2>/dev/null)
+            echo "$t: ${p:-MISSING}" | tee -a "$R"
+          done
+          echo "=== XnuPrelink kit present? ===" | tee -a "$R"
+          ls device/kits/XnuPrelink 2>/dev/null | tee -a "$R"
+          echo "=== KDK reference path expected by audit ===" | tee -a "$R"
+          ls -la device/.cache/kdk-aes-reference 2>/dev/null | tee -a "$R"
+          echo "(kdk cache absent on clean checkout is expected)" | tee -a "$R"
+          echo "=== qemu aarch64 machine list (virt present?) ===" | tee -a "$R"
+          qemu-system-aarch64 -machine help | grep -iE "^virt|raspi|sbsa" | tee -a "$R"
+          echo "REPORT_PATH=$R" >> "$GITHUB_OUTPUT"
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: b1-probe-report
+          retention-days: 3
+          if-no-files-found: error
+          path: ${{ steps.rep.outputs.REPORT_PATH }}
